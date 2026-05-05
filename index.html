@@ -353,39 +353,31 @@ function onSheetChange(){
 // ── PARSE ──────────────────────────────────────────────────────────────────
 function parseExport(ws){
   const json=XLSX.utils.sheet_to_json(ws,{defval:''});
-  let curMod='(no module)',curML=[],curTS='Not Applicable',curTR='Not Applicable',curV='Not Applicable';
   const lineItems=[];
   json.forEach(row=>{
+    const name=String(row['Line items']||'').trim();
+    if(!name)return;
+
+    const modName=String(row['Module Name']||'').trim();
+    // Module header rows have no Module Name — skip them
+    if(!modName)return;
+
+    const cc=parseFloat(String(row['Cell Count']||'').replace(/,/g,''))||0;
+    if(cc===0)return;
+
     const fmt=String(row['Format']||'').trim();
     const frm=String(row['Formula']||'').trim();
-    const sm=String(row['Summary']||'').trim();
-    if(fmt===''&&frm===''&&sm===''){
-      const mn=String(row['Line item names']||'').trim();
-      if(mn)curMod=mn;
-      const hat=String(row['Applies To']||'').trim();
-      curML=(hat&&hat!=='-')?hat.split(',').map(s=>s.trim()).filter(Boolean):[];
-      curTS=String(row['Time Scale']||'Not Applicable').trim();
-      curTR=String(row['Time Range']||'Not Applicable').trim();
-      curV=String(row['Versions']||'Not Applicable').trim();
-      return;
-    }
-    const cc=parseFloat(String(row['Cell Count']||'').replace(/,/g,''))||0;
-    const b=bpc(fmt);
-    const modName=String(row['Module Name']||'').trim()||curMod;
+    const versions=String(row['Versions']||'Not Applicable').trim();
+    const timeScale=String(row['Time Scale']||'Not Applicable').trim();
+    const timeRange=String(row['Time Range']||'Not Applicable').trim();
     const rawAt=String(row['Applies To']||'').trim();
-    const lists=rawAt==='-'?curML.slice():rawAt===''?[]:rawAt.split(',').map(s=>s.trim()).filter(Boolean);
-    const rawTS=String(row['Time Scale']||'').trim();
-    const rawTR=String(row['Time Range']||'').trim();
-    const rawV=String(row['Versions']||'').trim();
-    const timeScale=(rawTS&&rawTS!=='-')?rawTS:curTS;
-    const timeRange=(rawTR&&rawTR!=='-')?rawTR:curTR;
-    const versions=(rawV&&rawV!=='-')?rawV:curV;
-    // versionCount: 'All' = 2 versions, 'Not Applicable' = 1, anything else treated as 1 (user can override via controls)
+    const lists=(rawAt&&rawAt!=='-')?rawAt.split(',').map(s=>s.trim()).filter(Boolean):[];
     const versionCount=(versions==='All')?2:1;
     const timePeriods=getTP(timeScale,timeRange);
+    const b=bpc(fmt);
+
     lineItems.push({
-      name:String(row['Line item names']||'').trim(),
-      module:modName,format:fmt,formula:frm,
+      name,module:modName,format:fmt,formula:frm,
       lists,timeScale,timeRange,versions,versionCount,timePeriods,
       cellCount:cc,gb:(cc*b)/GB,bpc:b
     });
@@ -426,7 +418,7 @@ function recalc(){
 
   // For each line item: if versioned (versionCount matches curVC), scale up; else unchanged
   const items=vsData.map(li=>{
-    const isVersioned=li.versionCount>1 || (li.versions!=='Not Applicable'&&li.versions!=='');
+    const isVersioned=li.versions==='All';
     const projCells=isVersioned ? Math.round(li.cellCount*mult) : li.cellCount;
     const projGB=isVersioned ? li.gb*mult : li.gb;
     const addedCells=projCells-li.cellCount;
@@ -873,25 +865,39 @@ function exportToExcel(){
       // SHEET 3 — LINE ITEM DETAIL
       // ═══════════════════════════════════════════════════════════════════
       (()=>{
+        // Debug: log first item to console to verify fields
+        if(items.length>0){
+          console.log('[VS Export] Sample item:', JSON.stringify(items[0]));
+          console.log('[VS Export] Total items:', items.length, '| Versioned:', items.filter(x=>x.isVersioned).length);
+        }
+
+        // Only export impacted items (matching on-screen default view), sorted by impact desc
+        const sorted=[...items]
+          .filter(li=>li.isVersioned && (li.addedGB||0)>0)
+          .sort((a,b)=>(b.addedGB||0)-(a.addedGB||0));
+
+        // Fallback: if no versioned items found, export everything
+        const exportRows = sorted.length > 0 ? sorted : [...items].sort((a,b)=>(b.cellCount||0)-(a.cellCount||0));
+        const isFiltered = sorted.length > 0;
+
         const D=[];
         D.push(['LINE ITEM DETAIL — VERSION IMPACT','','','','','','','','','']); // 0
-        D.push([`All line items  ·  ${curVC} → ${newVC} versions  ·  ${mult.toFixed(3)}× multiplier  ·  ${dateStr}`,'','','','','','','','','']); // 1
+        D.push([`${isFiltered ? sorted.length+' impacted items' : items.length+' total items'}  ·  ${curVC} → ${newVC} versions  ·  ${mult.toFixed(3)}× multiplier  ·  ${dateStr}`,'','','','','','','','','']); // 1
         D.push(['','','','','','','','','','']); // 2
         D.push(['LINE ITEM','MODULE','VERSIONS','CURRENT GB','CURRENT CELLS','PROJECTED GB','PROJECTED CELLS','+ GB ADDED','+ CELLS ADDED','% GROWTH']); // 3
 
-        const sorted=[...items].sort((a,b)=>(b.addedGB||0)-(a.addedGB||0));
-        sorted.forEach(li=>{
+        exportRows.forEach(li=>{
           D.push([
-            li.name||'',
-            li.module||'',
-            li.isVersioned?(li.versions||'All'):'Not Applicable',
-            n4(li.gb||0),
-            ni(li.cellCount||0),
-            n4(li.projGB||0),
-            ni(li.projCells||0),
-            n4(li.addedGB||0),
-            ni(li.addedCells||0),
-            n2(li.pctGrow||0)
+            String(li.name||''),
+            String(li.module||''),
+            String(li.isVersioned?(li.versions||'All'):'Not Applicable'),
+            n4(+(li.gb)||0),
+            ni(+(li.cellCount)||0),
+            n4(+(li.projGB)||0),
+            ni(+(li.projCells)||0),
+            n4(+(li.addedGB)||0),
+            ni(+(li.addedCells)||0),
+            n2(+(li.pctGrow)||0)
           ]);
         });
 
@@ -908,7 +914,7 @@ function exportToExcel(){
         sc(ws,3,1,st(S.fHdr,S.bgHdr3,S.aL,S.bThin));
 
         // Data rows
-        sorted.forEach((li,i)=>{
+        exportRows.forEach((li,i)=>{
           const r=4+i;
           const bg=i%2===0?S.bgEven:S.bgOdd;
           const imp=li.isVersioned;
@@ -919,15 +925,15 @@ function exportToExcel(){
           sc(ws,r,4,st(S.fNum,bg,S.aR,S.bThin));
           sc(ws,r,5,st(S.fProj,bg,S.aR,S.bThin));
           sc(ws,r,6,st(S.fProj,bg,S.aR,S.bThin));
-          sc(ws,r,7,st(imp&&li.addedGB>0?S.fDelta:S.fMuted,bg,S.aR,S.bThin));
-          sc(ws,r,8,st(imp&&li.addedCells>0?S.fDelta:S.fMuted,bg,S.aR,S.bThin));
-          sc(ws,r,9,st(imp&&li.pctGrow>0?S.fAmber:S.fMuted,bg,S.aR,S.bThin));
+          sc(ws,r,7,st(imp&&(li.addedGB||0)>0?S.fDelta:S.fMuted,bg,S.aR,S.bThin));
+          sc(ws,r,8,st(imp&&(li.addedCells||0)>0?S.fDelta:S.fMuted,bg,S.aR,S.bThin));
+          sc(ws,r,9,st(imp&&(li.pctGrow||0)>0?S.fAmber:S.fMuted,bg,S.aR,S.bThin));
         });
 
         ws['!cols']=[{wch:34},{wch:32},{wch:14},{wch:14},{wch:15},{wch:14},{wch:15},{wch:13},{wch:15},{wch:12}];
         ws['!rows']=[{hpt:28},{hpt:15}];
         ws['!sheetViews']=[{showGridLines:false}];
-        ws['!autofilter']={ref:`A4:J${3+sorted.length}`};
+        ws['!autofilter']={ref:`A4:J${3+exportRows.length}`};
         XLSX.utils.book_append_sheet(wb,ws,'Line Item Detail');
       })();
 
