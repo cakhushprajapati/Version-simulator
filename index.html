@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Anaplan · Version Impact Simulator</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#0a0c10;--surface:#111318;--surface2:#181c24;--border:#1f2533;--border2:#252d3d;
+  --accent:#3b82f6;--accent2:#60a5fa;--accent-glow:rgba(59,130,246,0.15);
+  --green:#22d3a4;--green-glow:rgba(34,211,164,0.12);
+  --amber:#f59e0b;--red:#f87171;
+  --purple:#a78bfa;--purple-glow:rgba(167,139,250,0.1);
+  --text:#e2e8f0;--muted:#64748b;--muted2:#475569;
+  --font-d:'Syne',sans-serif;--font-m:'DM Mono',monospace;--font-b:'Inter',sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{background:var(--bg);color:var(--text);font-family:var(--font-b);min-height:100vh;overflow-x:hidden;}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(var(--border) 1px,transparent 1px),linear-gradient(90deg,var(--border) 1px,transparent 1px);background-size:48px 48px;opacity:.28;pointer-events:none;z-index:0;}
+
+.shell{max-width:1380px;margin:0 auto;padding:32px 32px 72px;position:relative;z-index:1;}
+
+/* ── TOPBAR ── */
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;flex-wrap:wrap;gap:12px;}
+.logo{display:flex;align-items:center;gap:12px;}
+.logo-icon{width:40px;height:40px;background:linear-gradient(135deg,var(--purple),var(--accent));border-radius:10px;display:flex;align-items:center;justify-content:center;font-family:var(--font-m);font-size:11px;font-weight:500;color:#fff;flex-shrink:0;letter-spacing:.02em;}
+.logo-text{font-family:var(--font-d);font-size:17px;font-weight:800;}
+.logo-sub{font-family:var(--font-m);font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-top:1px;}
+.badge{font-family:var(--font-m);font-size:11px;padding:4px 12px;border-radius:20px;background:var(--purple-glow);border:1px solid rgba(167,139,250,0.3);color:var(--purple);}
+
+/* ── UPLOAD ── */
+.upload-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:28px 32px;margin-bottom:24px;display:flex;align-items:center;gap:24px;flex-wrap:wrap;}
+.upload-card.loaded{border-color:rgba(167,139,250,0.35);background:rgba(167,139,250,0.04);}
+.upload-zone{border:1.5px dashed var(--border2);border-radius:10px;padding:18px 28px;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:12px;flex-shrink:0;}
+.upload-zone:hover{border-color:var(--purple);background:var(--purple-glow);}
+.upload-zone-text{font-family:var(--font-m);font-size:12px;color:var(--muted);}
+.file-chip{display:inline-flex;align-items:center;gap:7px;background:rgba(167,139,250,0.1);border:1px solid rgba(167,139,250,0.3);border-radius:99px;padding:5px 13px 5px 9px;font-family:var(--font-m);font-size:11px;color:var(--purple);}
+.chip-dot{width:6px;height:6px;border-radius:50%;background:var(--purple);flex-shrink:0;}
+.sheet-sel{background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:6px 10px;font-family:var(--font-m);font-size:12px;color:var(--text);outline:none;}
+.run-btn{background:linear-gradient(135deg,var(--purple),var(--accent));color:#fff;border:none;border-radius:9px;padding:11px 28px;font-family:var(--font-m);font-size:13px;font-weight:500;cursor:pointer;letter-spacing:.04em;transition:opacity .18s,transform .18s;display:flex;align-items:center;gap:8px;}
+.run-btn:hover{opacity:.88;transform:translateY(-1px);}
+.run-btn:disabled{opacity:.35;cursor:not-allowed;transform:none;}
+.upload-meta{font-family:var(--font-m);font-size:11px;color:var(--muted);display:flex;gap:16px;}
+
+/* ── PROGRESS ── */
+.prog{height:2px;background:var(--border2);margin-bottom:24px;}
+.prog-fill{height:100%;background:linear-gradient(90deg,var(--purple),var(--accent));transition:width .3s;width:0;}
+
+/* ── CONTROLS ── */
+.controls{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:22px 28px;margin-bottom:24px;display:flex;align-items:center;gap:24px;flex-wrap:wrap;}
+.ctrl-group{display:flex;flex-direction:column;gap:5px;}
+.ctrl-label{font-family:var(--font-m);font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted2);}
+.ctrl-val{font-family:var(--font-d);font-size:22px;font-weight:700;}
+.ctrl-input{background:var(--surface2);border:1px solid var(--border2);border-radius:7px;padding:7px 12px;font-family:var(--font-m);font-size:14px;color:var(--text);outline:none;width:80px;text-align:center;}
+.ctrl-input:focus{border-color:var(--purple);}
+.ctrl-arrow{font-size:18px;color:var(--muted2);}
+.recalc-btn{background:rgba(167,139,250,0.15);color:var(--purple);border:1px solid rgba(167,139,250,0.35);border-radius:7px;padding:8px 18px;font-family:var(--font-m);font-size:12px;cursor:pointer;transition:all .18s;margin-left:auto;}
+.recalc-btn:hover{background:rgba(167,139,250,0.25);}
+
+/* ── KPI ── */
+.kpi-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px;}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px 16px;transition:border-color .2s;}
+.kpi:hover{border-color:var(--border2);}
+.kpi-label{font-family:var(--font-m);font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--muted2);margin-bottom:7px;}
+.kpi-val{font-family:var(--font-d);font-size:22px;font-weight:700;line-height:1;margin-bottom:4px;}
+.kpi-sub{font-family:var(--font-m);font-size:10px;color:var(--muted);}
+.c-purple{color:var(--purple);}
+.c-green{color:var(--green);}
+.c-red{color:var(--red);}
+.c-amber{color:var(--amber);}
+.c-blue{color:var(--accent2);}
+
+/* ── SECTION ── */
+.section{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:20px;}
+.sec-hdr{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--surface2);flex-wrap:wrap;gap:8px;}
+.sec-title{font-family:var(--font-d);font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px;}
+.sec-meta{font-family:var(--font-m);font-size:11px;color:var(--muted);}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+
+/* ── TABLE ── */
+.tbl{width:100%;border-collapse:collapse;font-size:12px;}
+.tbl th{padding:9px 14px;font-family:var(--font-m);font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);border-bottom:1px solid var(--border);background:var(--surface2);white-space:nowrap;text-align:left;position:sticky;top:0;z-index:1;}
+.tbl th.r{text-align:right;}
+.tbl td{padding:8px 14px;border-bottom:1px solid var(--border);vertical-align:middle;}
+.tbl td.r{text-align:right;font-family:var(--font-m);font-size:10px;}
+.tbl td.m{font-family:var(--font-m);font-size:10px;}
+.tbl tr:hover td{background:rgba(255,255,255,.015);}
+.scroll-wrap{overflow-x:auto;max-height:520px;overflow-y:auto;}
+.tbl-foot{padding:10px 16px;font-family:var(--font-m);font-size:10px;color:var(--muted2);border-top:1px solid var(--border);}
+
+/* ── FILTER ── */
+.filter-bar{padding:10px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.f-sel{background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:5px 10px;font-family:var(--font-m);font-size:11px;color:var(--text);outline:none;cursor:pointer;}
+.f-inp{background:var(--surface2);border:1px solid var(--border2);border-radius:6px;padding:5px 10px;font-family:var(--font-m);font-size:11px;color:var(--text);outline:none;width:200px;}
+.f-inp::placeholder{color:var(--muted2);}
+
+/* ── CHART ── */
+.bar-wrap{display:flex;align-items:center;gap:8px;}
+.bar-track{flex:1;height:6px;background:var(--surface2);border-radius:3px;overflow:hidden;}
+.bar-fill-p{height:100%;border-radius:3px;background:var(--purple);transition:width .8s cubic-bezier(.4,0,.2,1);}
+.bar-fill-g{height:100%;border-radius:3px;background:var(--green);}
+
+/* ── TIER BADGE ── */
+.tier{display:inline-block;font-family:var(--font-m);font-size:10px;font-weight:500;padding:2px 8px;border-radius:4px;white-space:nowrap;}
+.tier-xl{background:rgba(228,75,74,.15);color:#f87171;}
+.tier-large{background:rgba(216,90,48,.15);color:#fb923c;}
+.tier-medium{background:rgba(239,159,39,.15);color:#fbbf24;}
+.tier-small{background:rgba(34,211,164,.12);color:#22d3a4;}
+
+/* ── HERO ── */
+.hero-banner{background:linear-gradient(135deg,rgba(167,139,250,0.09),rgba(59,130,246,0.06));border:1px solid rgba(167,139,250,0.22);border-radius:14px;padding:28px 32px;margin-bottom:24px;position:relative;overflow:hidden;}
+.hero-banner::before{content:'';position:absolute;top:-60px;right:-60px;width:240px;height:240px;background:radial-gradient(circle,rgba(167,139,250,0.18),transparent 70%);pointer-events:none;}
+.hero-banner::after{content:'';position:absolute;bottom:-40px;left:120px;width:180px;height:180px;background:radial-gradient(circle,rgba(59,130,246,0.1),transparent 70%);pointer-events:none;}
+.hero-eyebrow{font-family:var(--font-m);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--purple);margin-bottom:10px;}
+.hero-title{font-family:var(--font-d);font-size:clamp(20px,3vw,28px);font-weight:800;margin-bottom:6px;line-height:1.2;}
+.hero-sub{font-size:13px;color:var(--muted);font-family:var(--font-m);line-height:1.7;}
+
+/* ── EMPTY / HINT ── */
+.empty{padding:40px;text-align:center;font-family:var(--font-m);font-size:12px;color:var(--muted2);}
+.hint{padding:32px;text-align:center;color:var(--muted);font-family:var(--font-m);font-size:12px;line-height:1.9;}
+
+/* ── PG ── */
+.pg-bar{padding:8px 16px;display:flex;align-items:center;gap:8px;font-family:var(--font-m);font-size:11px;color:var(--muted);border-top:1px solid var(--border);}
+.pg-btn{background:var(--surface2);border:1px solid var(--border2);border-radius:5px;padding:3px 10px;font-family:var(--font-m);font-size:11px;color:var(--muted);cursor:pointer;}
+.pg-btn:disabled{opacity:.35;cursor:not-allowed;}
+
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+@media(max-width:800px){.kpi-strip{grid-template-columns:repeat(2,1fr);}.upload-card{flex-direction:column;align-items:flex-start;}}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+    <div class="logo">
+      <div class="logo-icon">VS</div>
+      <div>
+        <div class="logo-text">Version Simulator</div>
+        <div class="logo-sub">Anaplan · EPM Toolkit · Polestar Analytics</div>
+      </div>
+    </div>
+    <div class="badge">⚡ Impact Modelling · Khush Prajapati</div>
+  </div>
+
+  <!-- UPLOAD -->
+  <div class="upload-card" id="upload-card">
+    <label class="upload-zone" for="vs-file">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 13V3M10 3L6 7M10 3L14 7" stroke="#a78bfa" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 17H17" stroke="#a78bfa" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <span class="upload-zone-text">Upload Anaplan Module Export (.xlsx)</span>
+      <input type="file" id="vs-file" accept=".xlsx,.xls" style="display:none">
+    </label>
+    <div id="vs-chip" style="display:none;"></div>
+    <select id="vs-sheet" class="sheet-sel" style="display:none;" onchange="onSheetChange()"></select>
+    <div id="vs-meta" class="upload-meta" style="display:none;"></div>
+    <button class="run-btn" id="vs-run" onclick="runSim()" disabled>
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 2L11 7L3 12V2Z" fill="currentColor"/></svg>
+      Run Simulator
+    </button>
+  </div>
+
+  <!-- PROGRESS -->
+  <div class="prog"><div class="prog-fill" id="vs-prog"></div></div>
+
+  <!-- RESULTS -->
+  <div id="vs-results" style="display:none;">
+
+    <!-- HERO -->
+    <div class="hero-banner">
+      <div class="hero-eyebrow">⚡ Version Impact Simulator</div>
+      <div class="hero-title">What happens when you add <span style="color:var(--purple);" id="h-versions">1 more version</span>?</div>
+      <div class="hero-sub" id="h-sub">Loading…</div>
+    </div>
+
+    <!-- CONTROLS -->
+    <div class="controls">
+      <div class="ctrl-group">
+        <div class="ctrl-label">Current Versions</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input class="ctrl-input" id="ctrl-cur" type="number" min="1" max="20" value="2" onchange="recalc()">
+        </div>
+      </div>
+      <div class="ctrl-arrow">→</div>
+      <div class="ctrl-group">
+        <div class="ctrl-label">Simulated Versions</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input class="ctrl-input" id="ctrl-new" type="number" min="1" max="20" value="3" onchange="recalc()">
+        </div>
+      </div>
+      <div class="ctrl-group" style="margin-left:12px;">
+        <div class="ctrl-label">Multiplier</div>
+        <div class="ctrl-val c-purple" id="ctrl-mult">1.50×</div>
+      </div>
+      <button class="recalc-btn" onclick="recalc()">Recalculate ↻</button>
+    </div>
+
+    <!-- KPIs -->
+    <div class="kpi-strip" id="vs-kpis"></div>
+
+    <!-- MODULE TABLE -->
+    <div class="section">
+      <div class="sec-hdr">
+        <div class="sec-title"><div class="dot" style="background:var(--purple);"></div>Impact by Module</div>
+        <div class="sec-meta" id="mod-meta"></div>
+      </div>
+      <div class="filter-bar">
+        <select class="f-sel" id="mf-impact" onchange="renderModTable()">
+          <option value="all">All modules</option>
+          <option value="impacted">Impacted only</option>
+          <option value="clean">Not impacted</option>
+        </select>
+        <input class="f-inp" id="mf-search" placeholder="Search module…" oninput="renderModTable()" style="width:220px;">
+      </div>
+      <div class="scroll-wrap" id="mod-wrap">
+        <table class="tbl" id="mod-tbl">
+          <thead><tr>
+            <th style="min-width:190px;">MODULE</th>
+            <th class="r" style="min-width:95px;">CURRENT GB</th>
+            <th class="r" style="min-width:95px;">CURRENT CELLS</th>
+            <th style="min-width:140px;">VERSION COVERAGE</th>
+            <th class="r" style="min-width:95px;">PROJECTED GB</th>
+            <th class="r" style="min-width:95px;">PROJECTED CELLS</th>
+            <th class="r" style="min-width:80px;">+ GB</th>
+            <th class="r" style="min-width:85px;">+ CELLS</th>
+            <th class="r" style="min-width:70px;">% GROW</th>
+            <th style="min-width:60px;">TIER</th>
+          </tr></thead>
+          <tbody id="mod-tbody"></tbody>
+        </table>
+      </div>
+      <div class="tbl-foot" id="mod-foot"></div>
+    </div>
+
+    <!-- LINE ITEM TABLE -->
+    <div class="section">
+      <div class="sec-hdr">
+        <div class="sec-title"><div class="dot" style="background:var(--red);"></div>Line Item Detail</div>
+        <div class="sec-meta" id="li-meta"></div>
+      </div>
+      <div class="filter-bar">
+        <select class="f-sel" id="lf-impact" onchange="filterLI()">
+          <option value="impacted">Impacted only</option>
+          <option value="all">All items</option>
+          <option value="clean">Not impacted</option>
+        </select>
+        <select class="f-sel" id="lf-module" onchange="filterLI()" style="min-width:200px;max-width:320px;"></select>
+        <input class="f-inp" id="lf-search" placeholder="Search line item…" oninput="filterLI()">
+      </div>
+      <div class="scroll-wrap">
+        <table class="tbl">
+          <thead><tr>
+            <th style="min-width:180px;">LINE ITEM</th>
+            <th style="min-width:180px;">MODULE</th>
+            <th style="min-width:75px;">VERSIONS</th>
+            <th class="r" style="min-width:85px;">CURRENT GB</th>
+            <th class="r" style="min-width:90px;">CURRENT CELLS</th>
+            <th class="r" style="min-width:85px;">PROJECTED GB</th>
+            <th class="r" style="min-width:90px;">PROJECTED CELLS</th>
+            <th class="r" style="min-width:75px;">+ GB</th>
+            <th class="r" style="min-width:75px;">+ CELLS</th>
+            <th class="r" style="min-width:65px;">% GROW</th>
+          </tr></thead>
+          <tbody id="li-tbody"></tbody>
+        </table>
+      </div>
+      <div class="pg-bar" id="li-pg"></div>
+      <div class="tbl-foot">Formula: Projected = Current × (New Versions ÷ Current Versions) &nbsp;·&nbsp; Non-versioned items show no impact</div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ── CONSTANTS ──────────────────────────────────────────────────────────────
+const GB=1073741824;
+const TK_TP_MAP={
+  'Month|Current Year':12,'Month|Model Calendar':36,'Month|Next Year':12,
+  'Month|ADP - Next Year':12,'Month|ADP - Current Year':12,'Month|ADP - Model Calender':36,
+  'Month|CY+NY':24,'Month|ADP - CY+NY':24,'Month|Following Year':12,
+  'Quarter|Current Year':4,'Quarter|ADP - Current Year':4,'Quarter|ADP - Model Calender':12,
+  'Year|Current Year':1,'Not Applicable|Not Applicable':1
+};
+const TIERS=[{l:'XL',cls:'tier-xl',min:50e6},{l:'Large',cls:'tier-large',min:10e6},{l:'Medium',cls:'tier-medium',min:1e6},{l:'Small',cls:'tier-small',min:0}];
+
+// ── STATE ──────────────────────────────────────────────────────────────────
+let vsWB=null, vsData=null, liFiltered=[], liPage=0;
+const LI_PS=40;
+
+// ── HELPERS ────────────────────────────────────────────────────────────────
+const esc=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function fmtGB(n){if(!n||n===0)return'—';const a=Math.abs(n);const s=n<0?'-':'';if(a>=1)return s+a.toFixed(4)+' GB';if(a>=0.001)return s+(a*1000).toFixed(3)+' MB';return s+(a*1e6).toFixed(1)+' KB';}
+function fmtC(n){if(!n&&n!==0)return'—';const a=Math.abs(n);const s=n<0?'-':'';if(a>=1e9)return s+(a/1e9).toFixed(2)+'B';if(a>=1e6)return s+(a/1e6).toFixed(2)+'M';if(a>=1e3)return s+(a/1e3).toFixed(1)+'K';return s+Math.round(a).toLocaleString();}
+function tierOf(cells){return TIERS.find(t=>cells>=t.min)||TIERS[3];}
+function setProg(p){document.getElementById('vs-prog').style.width=p+'%';}
+function bpc(fmt){
+  if(!fmt)return 8;
+  try{const o=JSON.parse(fmt),dt=(o.dataType||'').toUpperCase();
+    if(dt==='BOOLEAN')return 1;
+    if(['ENTITY','TIME_ENTITY','DATE','TIME','TIME_PERIOD'].includes(dt))return 4;
+    return 8;
+  }catch(e){const f=fmt.trim().toUpperCase();
+    if(f==='BOOLEAN')return 1;if(f.includes('DATE')||f.includes('TIME')||f.includes('ENTITY'))return 4;return 8;
+  }
+}
+function getTP(sc,rng){const k=sc+'|'+rng;if(TK_TP_MAP[k])return TK_TP_MAP[k];if(sc==='Month')return 12;if(sc==='Quarter')return 4;if(sc==='Year')return 1;return 1;}
+
+// ── FILE UPLOAD ────────────────────────────────────────────────────────────
+document.getElementById('vs-file').addEventListener('change',function(e){
+  const f=e.target.files&&e.target.files[0]; if(!f)return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    try{
+      vsWB=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
+      const sel=document.getElementById('vs-sheet');
+      sel.innerHTML=vsWB.SheetNames.map((n,i)=>`<option value="${i}">${esc(n)}</option>`).join('');
+      sel.style.display='block';
+      document.getElementById('vs-chip').innerHTML=`<span class="file-chip"><span class="chip-dot"></span>${esc(f.name)}</span>`;
+      document.getElementById('vs-chip').style.display='block';
+      // Quick meta
+      const ws=vsWB.Sheets[vsWB.SheetNames[0]];
+      const json=XLSX.utils.sheet_to_json(ws,{defval:''});
+      document.getElementById('vs-meta').innerHTML=`<span>${vsWB.SheetNames.length} sheet(s)</span><span>${json.length.toLocaleString()} rows</span>`;
+      document.getElementById('vs-meta').style.display='flex';
+      document.getElementById('upload-card').className='upload-card loaded';
+      document.getElementById('vs-run').disabled=false;
+    }catch(err){alert('Could not parse: '+err.message);}
+  };
+  reader.readAsArrayBuffer(f);
+});
+
+function onSheetChange(){
+  if(vsData) runSim();
+}
+
+// ── PARSE ──────────────────────────────────────────────────────────────────
+function parseExport(ws){
+  const json=XLSX.utils.sheet_to_json(ws,{defval:''});
+  let curMod='(no module)',curML=[],curTS='Not Applicable',curTR='Not Applicable',curV='Not Applicable';
+  const lineItems=[];
+  json.forEach(row=>{
+    const fmt=String(row['Format']||'').trim();
+    const frm=String(row['Formula']||'').trim();
+    const sm=String(row['Summary']||'').trim();
+    if(fmt===''&&frm===''&&sm===''){
+      const mn=String(row['Line item names']||'').trim();
+      if(mn)curMod=mn;
+      const hat=String(row['Applies To']||'').trim();
+      curML=(hat&&hat!=='-')?hat.split(',').map(s=>s.trim()).filter(Boolean):[];
+      curTS=String(row['Time Scale']||'Not Applicable').trim();
+      curTR=String(row['Time Range']||'Not Applicable').trim();
+      curV=String(row['Versions']||'Not Applicable').trim();
+      return;
+    }
+    const cc=parseFloat(String(row['Cell Count']||'').replace(/,/g,''))||0;
+    const b=bpc(fmt);
+    const modName=String(row['Module Name']||'').trim()||curMod;
+    const rawAt=String(row['Applies To']||'').trim();
+    const lists=rawAt==='-'?curML.slice():rawAt===''?[]:rawAt.split(',').map(s=>s.trim()).filter(Boolean);
+    const rawTS=String(row['Time Scale']||'').trim();
+    const rawTR=String(row['Time Range']||'').trim();
+    const rawV=String(row['Versions']||'').trim();
+    const timeScale=(rawTS&&rawTS!=='-')?rawTS:curTS;
+    const timeRange=(rawTR&&rawTR!=='-')?rawTR:curTR;
+    const versions=(rawV&&rawV!=='-')?rawV:curV;
+    // versionCount: 'All' = 2 versions, 'Not Applicable' = 1, anything else treated as 1 (user can override via controls)
+    const versionCount=(versions==='All')?2:1;
+    const timePeriods=getTP(timeScale,timeRange);
+    lineItems.push({
+      name:String(row['Line item names']||'').trim(),
+      module:modName,format:fmt,formula:frm,
+      lists,timeScale,timeRange,versions,versionCount,timePeriods,
+      cellCount:cc,gb:(cc*b)/GB,bpc:b
+    });
+  });
+  return lineItems;
+}
+
+// ── RUN ────────────────────────────────────────────────────────────────────
+function runSim(){
+  if(!vsWB)return;
+  setProg(20);
+  setTimeout(()=>{
+    const idx=parseInt(document.getElementById('vs-sheet').value)||0;
+    const ws=vsWB.Sheets[vsWB.SheetNames[idx]];
+    setProg(55);
+    vsData=parseExport(ws);
+    setProg(90);
+    // Auto-detect current version count from data
+    const maxVC=Math.max(...vsData.map(li=>li.versionCount),1);
+    document.getElementById('ctrl-cur').value=maxVC;
+    document.getElementById('ctrl-new').value=maxVC+1;
+    recalc();
+    setProg(100);
+    setTimeout(()=>setProgress(0),500);
+    document.getElementById('vs-results').style.display='block';
+    document.getElementById('vs-results').scrollIntoView({behavior:'smooth',block:'start'});
+  },60);
+}
+function setProgress(p){setProg(p);}
+
+// ── RECALC ────────────────────────────────────────────────────────────────
+function recalc(){
+  if(!vsData)return;
+  const curVC=Math.max(1,parseInt(document.getElementById('ctrl-cur').value)||2);
+  const newVC=Math.max(1,parseInt(document.getElementById('ctrl-new').value)||3);
+  const mult=newVC/curVC;
+  document.getElementById('ctrl-mult').textContent=mult.toFixed(2)+'×';
+
+  // For each line item: if versioned (versionCount matches curVC), scale up; else unchanged
+  const items=vsData.map(li=>{
+    const isVersioned=li.versionCount>1 || (li.versions!=='Not Applicable'&&li.versions!=='');
+    const projCells=isVersioned ? Math.round(li.cellCount*mult) : li.cellCount;
+    const projGB=isVersioned ? li.gb*mult : li.gb;
+    const addedCells=projCells-li.cellCount;
+    const addedGB=projGB-li.gb;
+    const pctGrow=li.cellCount>0&&isVersioned?((addedCells/li.cellCount)*100):0;
+    return{...li,isVersioned,projCells,projGB,addedCells,addedGB,pctGrow};
+  });
+
+  // Totals
+  const totCur=items.reduce((s,x)=>s+x.cellCount,0);
+  const totCurGB=items.reduce((s,x)=>s+x.gb,0);
+  const totProj=items.reduce((s,x)=>s+x.projCells,0);
+  const totProjGB=items.reduce((s,x)=>s+x.projGB,0);
+  const totAddedCells=totProj-totCur;
+  const totAddedGB=totProjGB-totCurGB;
+  const pctInc=totCurGB>0?(totAddedGB/totCurGB*100):0;
+  const impactedCount=items.filter(x=>x.isVersioned).length;
+
+  // Hero update
+  document.getElementById('h-versions').textContent=newVC-curVC===1?'1 more version'+(curVC>1?' ('+curVC+' → '+newVC+')':``):''+curVC+' → '+newVC+' versions';
+  document.getElementById('h-sub').innerHTML=
+    `Currently <strong style="color:var(--text);">${curVC} version${curVC>1?'s':''}</strong> on versioned line items &nbsp;·&nbsp;`+
+    ` Simulating scale to <strong style="color:var(--purple);">${newVC} version${newVC>1?'s':''}</strong> &nbsp;·&nbsp;`+
+    ` Multiplier: <strong style="color:var(--purple);">${mult.toFixed(3)}×</strong> &nbsp;·&nbsp;`+
+    ` Non-versioned items are unaffected`;
+
+  // KPIs
+  document.getElementById('vs-kpis').innerHTML=`
+    <div class="kpi"><div class="kpi-label">Current Size</div><div class="kpi-val c-blue">${fmtGB(totCurGB)}</div><div class="kpi-sub">${fmtC(totCur)} cells</div></div>
+    <div class="kpi" style="border-color:rgba(167,139,250,0.3);"><div class="kpi-label">Projected Size</div><div class="kpi-val c-purple">${fmtGB(totProjGB)}</div><div class="kpi-sub">${fmtC(totProj)} cells</div></div>
+    <div class="kpi" style="border-color:rgba(248,113,113,0.3);"><div class="kpi-label">Size Added</div><div class="kpi-val c-red">+${fmtGB(totAddedGB)}</div><div class="kpi-sub">+${fmtC(totAddedCells)} cells</div></div>
+    <div class="kpi" style="border-color:rgba(245,158,11,0.3);"><div class="kpi-label">% Increase</div><div class="kpi-val c-amber">+${pctInc.toFixed(2)}%</div><div class="kpi-sub">of total model</div></div>
+    <div class="kpi"><div class="kpi-label">Items Affected</div><div class="kpi-val c-green">${impactedCount.toLocaleString()}</div><div class="kpi-sub">of ${items.length.toLocaleString()} total</div></div>
+  `;
+
+  // Build module map
+  const modMap={};
+  items.forEach(li=>{
+    const m=li.module;
+    if(!modMap[m])modMap[m]={name:m,curCells:0,curGB:0,projCells:0,projGB:0,addedCells:0,addedGB:0,versioned:0,total:0};
+    modMap[m].curCells+=li.cellCount; modMap[m].curGB+=li.gb;
+    modMap[m].projCells+=li.projCells; modMap[m].projGB+=li.projGB;
+    modMap[m].addedCells+=li.addedCells; modMap[m].addedGB+=li.addedGB;
+    if(li.isVersioned)modMap[m].versioned++;
+    modMap[m].total++;
+  });
+  window._vsModData=Object.values(modMap).sort((a,b)=>b.addedGB-a.addedGB);
+
+  // Module filter dropdown
+  const modSel=document.getElementById('lf-module');
+  const prevMod=modSel.value;
+  modSel.innerHTML='<option value="">All modules</option>'+
+    window._vsModData.map(m=>`<option value="${esc(m.name)}">${esc(m.name)}</option>`).join('');
+  if(prevMod)modSel.value=prevMod;
+
+  // Store items for LI table
+  window._vsItems=items;
+  liPage=0;
+
+  renderModTable();
+  filterLI();
+}
+
+// ── MODULE TABLE ───────────────────────────────────────────────────────────
+function renderModTable(){
+  const mods=window._vsModData||[];
+  const impact=document.getElementById('mf-impact').value;
+  const q=(document.getElementById('mf-search').value||'').toLowerCase();
+  const filtered=mods.filter(m=>{
+    if(impact==='impacted'&&m.versioned===0)return false;
+    if(impact==='clean'&&m.versioned>0)return false;
+    if(q&&!m.name.toLowerCase().includes(q))return false;
+    return true;
+  });
+  document.getElementById('mod-meta').textContent=filtered.length+' modules';
+
+  const rows=filtered.map(m=>{
+    const pct=m.curGB>0?(m.addedGB/m.curGB*100):0;
+    const vPct=m.total>0?(m.versioned/m.total*100):0;
+    const t=tierOf(m.projCells);
+    return`<tr>
+      <td style="font-weight:500;max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(m.name)}">${esc(m.name.length>32?m.name.slice(0,32)+'…':m.name)}</td>
+      <td class="r" style="color:var(--accent2);">${fmtGB(m.curGB)}</td>
+      <td class="r" style="color:var(--accent2);">${fmtC(m.curCells)}</td>
+      <td style="min-width:140px;">
+        <div class="bar-wrap">
+          <div class="bar-track"><div class="bar-fill-p" style="width:${vPct.toFixed(1)}%;"></div></div>
+          <span style="font-family:var(--font-m);font-size:9px;color:var(--purple);white-space:nowrap;">${m.versioned}/${m.total}</span>
+        </div>
+      </td>
+      <td class="r" style="color:var(--purple);">${fmtGB(m.projGB)}</td>
+      <td class="r" style="color:var(--purple);">${fmtC(m.projCells)}</td>
+      <td class="r" style="color:${m.addedGB>0?'var(--red)':'var(--muted2)'};">${m.addedGB>0?'+'+fmtGB(m.addedGB):'—'}</td>
+      <td class="r" style="color:${m.addedCells>0?'var(--red)':'var(--muted2)'};">${m.addedCells>0?'+'+fmtC(m.addedCells):'—'}</td>
+      <td class="r" style="color:${pct>0?'var(--amber)':'var(--muted2)'};">${pct>0?'+'+pct.toFixed(1)+'%':'—'}</td>
+      <td><span class="tier ${t.cls}">${t.l}</span></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('mod-tbody').innerHTML=rows||`<tr><td colspan="10" class="empty">No modules match filter</td></tr>`;
+  const totAddedGB=(filtered.reduce((s,m)=>s+m.addedGB,0));
+  document.getElementById('mod-foot').textContent=`${filtered.length} modules shown · Total additional size: +${fmtGB(totAddedGB)}`;
+}
+
+// ── LINE ITEM TABLE ────────────────────────────────────────────────────────
+function filterLI(){
+  const items=window._vsItems||[];
+  const impact=document.getElementById('lf-impact').value;
+  const mod=document.getElementById('lf-module').value;
+  const q=(document.getElementById('lf-search').value||'').toLowerCase();
+  liFiltered=items.filter(li=>{
+    if(impact==='impacted'&&!li.isVersioned)return false;
+    if(impact==='clean'&&li.isVersioned)return false;
+    if(mod&&li.module!==mod)return false;
+    if(q&&!(li.name.toLowerCase().includes(q)||li.module.toLowerCase().includes(q)))return false;
+    return true;
+  }).sort((a,b)=>b.addedGB-a.addedGB);
+  liPage=0;
+  buildLIPage();
+}
+function buildLIPage(){
+  const s=liPage*LI_PS, e=Math.min(s+LI_PS,liFiltered.length);
+  const rows=liFiltered.slice(s,e).map(li=>{
+    const pct=li.pctGrow;
+    return`<tr>
+      <td style="font-weight:500;max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(li.name)}">${esc(li.name.length>28?li.name.slice(0,28)+'…':li.name)}</td>
+      <td class="m" style="color:var(--muted);max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(li.module)}">${esc(li.module.length>26?li.module.slice(0,26)+'…':li.module)}</td>
+      <td class="m">${esc(li.isVersioned?li.versions:'—')}</td>
+      <td class="r" style="color:var(--accent2);">${fmtGB(li.gb)}</td>
+      <td class="r" style="color:var(--accent2);">${fmtC(li.cellCount)}</td>
+      <td class="r" style="color:var(--purple);">${fmtGB(li.projGB)}</td>
+      <td class="r" style="color:var(--purple);">${fmtC(li.projCells)}</td>
+      <td class="r" style="color:${li.addedGB>0?'var(--red)':'var(--muted2)'};">${li.addedGB>0?'+'+fmtGB(li.addedGB):'—'}</td>
+      <td class="r" style="color:${li.addedCells>0?'var(--red)':'var(--muted2)'};">${li.addedCells>0?'+'+fmtC(li.addedCells):'—'}</td>
+      <td class="r" style="color:${pct>0?'var(--amber)':'var(--muted2)'};">${pct>0?'+'+pct.toFixed(1)+'%':'—'}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('li-tbody').innerHTML=rows||`<tr><td colspan="10" class="empty">No items match filter</td></tr>`;
+  document.getElementById('li-meta').textContent=liFiltered.length+' items';
+  const pg=document.getElementById('li-pg');
+  pg.innerHTML=`<button class="pg-btn" onclick="liPg(-1)" ${liPage===0?'disabled':''}>← Prev</button><span>${s+1}–${e} of ${liFiltered.length}</span><button class="pg-btn" onclick="liPg(1)" ${e>=liFiltered.length?'disabled':''}>Next →</button>`;
+}
+function liPg(d){liPage+=d;buildLIPage();}
+</script>
+</body>
+</html>
