@@ -59,6 +59,14 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
 .ctrl-arrow{font-size:18px;color:var(--muted2);}
 .recalc-btn{background:rgba(167,139,250,0.15);color:var(--purple);border:1px solid rgba(167,139,250,0.35);border-radius:7px;padding:8px 18px;font-family:var(--font-m);font-size:12px;cursor:pointer;transition:all .18s;margin-left:auto;}
 .recalc-btn:hover{background:rgba(167,139,250,0.25);}
+.export-btn{display:flex;align-items:center;gap:8px;background:linear-gradient(135deg,#1a7d45,#16a34a);color:#fff;border:none;border-radius:9px;padding:10px 22px;font-family:var(--font-m);font-size:12px;font-weight:500;cursor:pointer;letter-spacing:.04em;transition:opacity .18s,transform .18s,box-shadow .18s;box-shadow:0 2px 14px rgba(22,163,74,0.3);white-space:nowrap;}
+.export-btn:hover{opacity:.92;transform:translateY(-1px);box-shadow:0 4px 20px rgba(22,163,74,0.45);}
+.export-btn:active{transform:translateY(0);}
+.export-btn:disabled{opacity:.35;cursor:not-allowed;transform:none;box-shadow:none;}
+.export-btn svg{flex-shrink:0;}
+.export-pill{display:inline-flex;align-items:center;gap:5px;background:rgba(22,163,74,0.12);border:1px solid rgba(22,163,74,0.3);border-radius:4px;padding:1px 7px;font-size:10px;color:#4ade80;}
+@keyframes export-spin{to{transform:rotate(360deg)}}
+.export-spin{animation:export-spin .7s linear infinite;}
 
 /* ── KPI ── */
 .kpi-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px;}
@@ -197,6 +205,11 @@ body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(
         <div class="ctrl-val c-purple" id="ctrl-mult">1.50×</div>
       </div>
       <button class="recalc-btn" onclick="recalc()">Recalculate ↻</button>
+      <button class="export-btn" id="export-btn" onclick="exportToExcel()" title="Download professional Excel report">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="2" y="1" width="11" height="13" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M5 5h5M5 7.5h5M5 10h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M9.5 11l1.5 1.5L13 10" stroke="#4ade80" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Export Report
+        <span class="export-pill">XLSX</span>
+      </button>
     </div>
 
     <!-- KPIs -->
@@ -556,6 +569,429 @@ function buildLIPage(){
   pg.innerHTML=`<button class="pg-btn" onclick="liPg(-1)" ${liPage===0?'disabled':''}>← Prev</button><span>${s+1}–${e} of ${liFiltered.length}</span><button class="pg-btn" onclick="liPg(1)" ${e>=liFiltered.length?'disabled':''}>Next →</button>`;
 }
 function liPg(d){liPage+=d;buildLIPage();}
+
+// ── EXPORT TO EXCEL ────────────────────────────────────────────────────────
+function exportToExcel(){
+  const items=window._vsItems;
+  const mods=window._vsModData;
+  if(!items||!mods||items.length===0){alert('Run the simulator first.');return;}
+
+  // Verify enriched data exists
+  const sample=items[0];
+  if(sample.projGB===undefined||sample.projGB===null){
+    alert('Please click Recalculate first, then export.');return;
+  }
+
+  const btn=document.getElementById('export-btn');
+  btn.disabled=true;
+  btn.innerHTML=`<svg class="export-spin" width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 2a5.5 5.5 0 1 1-3.89 1.61" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg> Generating…`;
+
+  setTimeout(()=>{
+    try{
+      const wb=XLSX.utils.book_new();
+      const curVC=parseInt(document.getElementById('ctrl-cur').value)||2;
+      const newVC=parseInt(document.getElementById('ctrl-new').value)||3;
+      const mult=newVC/curVC;
+      const now=new Date();
+      const dateStr=now.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+      const timeStr=now.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+
+      // ── STYLE PRIMITIVES (light professional theme) ─────────────────────
+      const S={
+        // fonts
+        fTitle: {name:'Calibri',sz:16,bold:true,color:{rgb:'1E3A5F'}},
+        fSub:   {name:'Calibri',sz:10,italic:true,color:{rgb:'6B7280'}},
+        fSec:   {name:'Calibri',sz:11,bold:true,color:{rgb:'FFFFFF'}},
+        fHdr:   {name:'Calibri',sz:10,bold:true,color:{rgb:'FFFFFF'}},
+        fData:  {name:'Calibri',sz:10,color:{rgb:'111827'}},
+        fNum:   {name:'Calibri',sz:10,color:{rgb:'1E40AF'}},
+        fProj:  {name:'Calibri',sz:10,bold:true,color:{rgb:'6D28D9'}},
+        fDelta: {name:'Calibri',sz:10,bold:true,color:{rgb:'B91C1C'}},
+        fAmber: {name:'Calibri',sz:10,bold:true,color:{rgb:'B45309'}},
+        fGreen: {name:'Calibri',sz:10,bold:true,color:{rgb:'065F46'}},
+        fMuted: {name:'Calibri',sz:10,color:{rgb:'6B7280'}},
+        fTot:   {name:'Calibri',sz:10,bold:true,color:{rgb:'1E3A5F'}},
+        fNote:  {name:'Calibri',sz:9,italic:true,color:{rgb:'6B7280'}},
+        // fills
+        bgTitle:{patternType:'solid',fgColor:{rgb:'EFF6FF'}},
+        bgSec:  {patternType:'solid',fgColor:{rgb:'1E3A5F'}},
+        bgHdr:  {patternType:'solid',fgColor:{rgb:'1E40AF'}},
+        bgHdr2: {patternType:'solid',fgColor:{rgb:'4338CA'}},
+        bgHdr3: {patternType:'solid',fgColor:{rgb:'B91C1C'}},
+        bgEven: {patternType:'solid',fgColor:{rgb:'F8FAFF'}},
+        bgOdd:  {patternType:'solid',fgColor:{rgb:'FFFFFF'}},
+        bgTot:  {patternType:'solid',fgColor:{rgb:'DBEAFE'}},
+        bgNote: {patternType:'solid',fgColor:{rgb:'FFFBEB'}},
+        bgKpiA: {patternType:'solid',fgColor:{rgb:'EFF6FF'}},
+        bgKpiB: {patternType:'solid',fgColor:{rgb:'F5F3FF'}},
+        bgKpiC: {patternType:'solid',fgColor:{rgb:'FEF2F2'}},
+        bgKpiD: {patternType:'solid',fgColor:{rgb:'FFFBEB'}},
+        bgKpiE: {patternType:'solid',fgColor:{rgb:'ECFDF5'}},
+        // borders
+        bThin: {top:{style:'thin',color:{rgb:'D1D5DB'}},bottom:{style:'thin',color:{rgb:'D1D5DB'}},left:{style:'thin',color:{rgb:'D1D5DB'}},right:{style:'thin',color:{rgb:'D1D5DB'}}},
+        bMed:  {top:{style:'medium',color:{rgb:'1E3A5F'}},bottom:{style:'medium',color:{rgb:'1E3A5F'}},left:{style:'medium',color:{rgb:'1E3A5F'}},right:{style:'medium',color:{rgb:'1E3A5F'}}},
+        bBot:  {bottom:{style:'medium',color:{rgb:'1E40AF'}}},
+        // align
+        aC: {horizontal:'center',vertical:'center'},
+        aL: {horizontal:'left',  vertical:'center'},
+        aR: {horizontal:'right', vertical:'center'},
+        aLW:{horizontal:'left',  vertical:'center',wrapText:true},
+      };
+
+      // Build a style object
+      const st=(font,fill,alignment,border,numFmt)=>{
+        const o={};
+        if(font)o.font=font;
+        if(fill)o.fill=fill;
+        if(alignment)o.alignment=alignment;
+        if(border)o.border=border;
+        if(numFmt)o.numFmt=numFmt;
+        return o;
+      };
+
+      // Apply style to cell
+      const sc=(ws,r,c,style)=>{
+        const addr=XLSX.utils.encode_cell({r,c});
+        if(!ws[addr])ws[addr]={t:'z',v:''};
+        ws[addr].s=style;
+      };
+
+      // Apply style to row range
+      const sr=(ws,r,c1,c2,style)=>{for(let c=c1;c<=c2;c++)sc(ws,r,c,style);};
+
+      // Apply style to entire column in row range
+      const styleBlock=(ws,r1,r2,c1,c2,style)=>{
+        for(let r=r1;r<=r2;r++) for(let c=c1;c<=c2;c++) sc(ws,r,c,style);
+      };
+
+      // Number helpers — keep as real numbers, format via numFmt
+      const n4=(n)=>typeof n==='number'?parseFloat(n.toFixed(4)):0;
+      const n2=(n)=>typeof n==='number'?parseFloat(n.toFixed(2)):0;
+      const ni=(n)=>typeof n==='number'?Math.round(n):0;
+
+      // ── TOTALS ────────────────────────────────────────────────────────────
+      const totCurGB =items.reduce((s,x)=>s+(x.gb||0),0);
+      const totProjGB=items.reduce((s,x)=>s+(x.projGB||0),0);
+      const totAddGB =totProjGB-totCurGB;
+      const totCur   =items.reduce((s,x)=>s+(x.cellCount||0),0);
+      const totProj  =items.reduce((s,x)=>s+(x.projCells||0),0);
+      const pctInc   =totCurGB>0?(totAddGB/totCurGB*100):0;
+      const impacted =items.filter(x=>x.isVersioned).length;
+
+      // ═══════════════════════════════════════════════════════════════════
+      // SHEET 1 — EXECUTIVE SUMMARY
+      // ═══════════════════════════════════════════════════════════════════
+      (()=>{
+        const D=[]; // aoa
+
+        // ── Title block ──
+        D.push(['VERSION IMPACT SIMULATOR','','','','','','']);           // 0
+        D.push(['Anaplan · EPM Toolkit · Polestar Analytics','','','','','','']); // 1
+        D.push([`Report generated: ${dateStr} at ${timeStr}`,'','','','','','']); // 2
+        D.push(['','','','','','','']);                                    // 3 spacer
+
+        // ── Simulation Parameters ──
+        D.push(['SIMULATION PARAMETERS','','','','','','']); // 4
+        D.push(['Parameter','Value','','','','','']);         // 5
+        D.push(['Current Versions',curVC,'','','','','']);    // 6
+        D.push(['Simulated Versions',newVC,'','','','','']);  // 7
+        D.push(['Size Multiplier',mult.toFixed(4)+'×','','','','','']); // 8
+        D.push(['','','','','','','']);                        // 9 spacer
+
+        // ── KPI block ──
+        D.push(['KEY PERFORMANCE INDICATORS','','','','','','']); // 10
+        D.push(['Metric','Current','Projected','Delta','Δ %','','']);     // 11
+        D.push(['Total Size (GB)',n4(totCurGB),n4(totProjGB),n4(totAddGB),n2(pctInc),'','']); // 12
+        D.push(['Total Cells',ni(totCur),ni(totProj),ni(totProj-totCur),n2(pctInc),'','']);   // 13
+        D.push(['Versioned Line Items',impacted,'','','','','']); // 14
+        D.push(['Total Line Items',items.length,'','','','','']); // 15
+        D.push(['Modules Impacted',mods.filter(m=>m.versioned>0).length,'','','','','']); // 16
+        D.push(['Total Modules',mods.length,'','','','','']); // 17
+        D.push(['','','','','','','']); // 18
+
+        // ── Top Modules ──
+        D.push(['TOP MODULES BY ADDITIONAL SIZE','','','','','','']); // 19
+        D.push(['Module','Current GB','Projected GB','+ GB Added','+ Cells Added','% Growth','Versioned / Total']); // 20
+        const top8=mods.slice(0,8);
+        top8.forEach(m=>{
+          const pct=m.curGB>0?(m.addedGB/m.curGB*100):0;
+          D.push([m.name,n4(m.curGB),n4(m.projGB),n4(m.addedGB),ni(m.addedCells),n2(pct),m.versioned+' / '+m.total]);
+        });
+        const noteR=D.length+1;
+        D.push(['','','','','','','']); // spacer
+        D.push(['NOTES & METHODOLOGY','','','','','','']);
+        D.push(['Formula','Projected = Current × (New Versions ÷ Current Versions)','','','','','']);
+        D.push(['Scope','Only line items with Versions set to "All" are affected by the simulation.','','','','','']);
+        D.push(['Multiplier',mult.toFixed(4)+'× ('+curVC+' → '+newVC+' versions)','','','','','']);
+        D.push(['Generated','Anaplan Version Impact Simulator — '+dateStr+' '+timeStr,'','','','','']);
+
+        const ws=XLSX.utils.aoa_to_sheet(D);
+        const NC=7,LR=D.length-1;
+
+        // Merges
+        ws['!merges']=[
+          {s:{r:0,c:0},e:{r:0,c:NC-1}},{s:{r:1,c:0},e:{r:1,c:NC-1}},{s:{r:2,c:0},e:{r:2,c:NC-1}},
+          {s:{r:4,c:0},e:{r:4,c:NC-1}},{s:{r:10,c:0},e:{r:10,c:NC-1}},{s:{r:19,c:0},e:{r:19,c:NC-1}},
+          {s:{r:noteR,c:0},e:{r:noteR,c:NC-1}},
+          {s:{r:noteR+1,c:1},e:{r:noteR+1,c:NC-1}},{s:{r:noteR+2,c:1},e:{r:noteR+2,c:NC-1}},
+          {s:{r:noteR+3,c:1},e:{r:noteR+3,c:NC-1}},{s:{r:noteR+4,c:1},e:{r:noteR+4,c:NC-1}},
+        ];
+
+        // Title
+        sr(ws,0,0,NC-1,st(S.fTitle,S.bgTitle,S.aL,null));
+        ws[XLSX.utils.encode_cell({r:0,c:0})].s={font:{...S.fTitle,sz:18},fill:S.bgTitle,alignment:S.aL};
+        sr(ws,1,0,NC-1,st(S.fSub,S.bgTitle,S.aL));
+        sr(ws,2,0,NC-1,st(S.fNote,{patternType:'solid',fgColor:{rgb:'F0F9FF'}},S.aL));
+
+        // Section headers
+        [4,10,19].forEach(r=>sr(ws,r,0,NC-1,st(S.fSec,S.bgSec,S.aL)));
+        ws[XLSX.utils.encode_cell({r:noteR,c:0})].s=st(S.fSec,{patternType:'solid',fgColor:{rgb:'92400E'}},S.aL);
+
+        // Param header row 5
+        [sc(ws,5,0,st(S.fHdr,S.bgHdr,S.aL,S.bThin)),sc(ws,5,1,st(S.fHdr,S.bgHdr,S.aC,S.bThin))];
+        for(let c=2;c<NC;c++) sc(ws,5,c,st(null,S.bgHdr,null,S.bThin));
+        // Param data rows 6-8
+        [[6,curVC],[7,newVC],[8,mult.toFixed(4)+'×']].forEach(([r,v],i)=>{
+          const bg=i%2===0?S.bgEven:S.bgOdd;
+          sc(ws,r,0,st({name:'Calibri',sz:10,color:{rgb:'374151'}},bg,S.aL,S.bThin));
+          sc(ws,r,1,st({name:'Calibri',sz:11,bold:true,color:{rgb:'1E40AF'}},bg,S.aC,S.bThin));
+          for(let c=2;c<NC;c++) sc(ws,r,c,st(null,bg,null,S.bThin));
+        });
+
+        // KPI col header row 11
+        const kpiHCols=['Metric','Current','Projected','Delta','Δ %'];
+        kpiHCols.forEach((_,c)=>sc(ws,11,c,st(S.fHdr,S.bgHdr2,S.aC,S.bThin)));
+        for(let c=5;c<NC;c++) sc(ws,11,c,st(null,S.bgHdr2,null,S.bThin));
+
+        // KPI data rows 12-17
+        const kpiBgs=[S.bgKpiA,S.bgKpiB,S.bgKpiA,S.bgKpiB,S.bgKpiA,S.bgKpiB];
+        const kpiDeltaFonts=[S.fDelta,S.fDelta,S.fGreen,S.fGreen,null,null];
+        [12,13,14,15,16,17].forEach((r,i)=>{
+          const bg=kpiBgs[i];
+          sc(ws,r,0,st({name:'Calibri',sz:10,bold:true,color:{rgb:'374151'}},bg,S.aL,S.bThin));
+          sc(ws,r,1,st(S.fNum,bg,S.aR,S.bThin));
+          sc(ws,r,2,st(S.fProj,bg,S.aR,S.bThin));
+          sc(ws,r,3,st(kpiDeltaFonts[i]||S.fDelta,bg,S.aR,S.bThin));
+          sc(ws,r,4,st(S.fAmber,bg,S.aR,S.bThin));
+          for(let c=5;c<NC;c++) sc(ws,r,c,st(null,bg,null,S.bThin));
+        });
+
+        // Top modules header row 20
+        for(let c=0;c<NC;c++) sc(ws,20,c,st(S.fHdr,S.bgHdr3,S.aC,S.bThin));
+        sc(ws,20,0,st(S.fHdr,S.bgHdr3,S.aL,S.bThin));
+
+        // Top module data rows 21+
+        top8.forEach((_,i)=>{
+          const r=21+i; const bg=i%2===0?S.bgEven:S.bgOdd;
+          sc(ws,r,0,st(S.fData,bg,S.aL,S.bThin));
+          sc(ws,r,1,st(S.fNum,bg,S.aR,S.bThin));
+          sc(ws,r,2,st(S.fProj,bg,S.aR,S.bThin));
+          sc(ws,r,3,st(S.fDelta,bg,S.aR,S.bThin));
+          sc(ws,r,4,st(S.fDelta,bg,S.aR,S.bThin));
+          sc(ws,r,5,st(S.fAmber,bg,S.aR,S.bThin));
+          sc(ws,r,6,st(S.fMuted,bg,S.aC,S.bThin));
+        });
+
+        // Notes
+        [noteR+1,noteR+2,noteR+3,noteR+4].forEach((r,i)=>{
+          const bg=i%2===0?{patternType:'solid',fgColor:{rgb:'FFFBEB'}}:{patternType:'solid',fgColor:{rgb:'FEF3C7'}};
+          sc(ws,r,0,st({name:'Calibri',sz:10,bold:true,color:{rgb:'92400E'}},bg,S.aL,S.bThin));
+          for(let c=1;c<NC;c++) sc(ws,r,c,st(S.fNote,bg,S.aLW,S.bThin));
+        });
+
+        ws['!cols']=[{wch:36},{wch:16},{wch:16},{wch:16},{wch:14},{wch:14},{wch:20}];
+        ws['!rows']=[{hpt:30},{hpt:16},{hpt:14},{hpt:6},{hpt:20}];
+        ws['!sheetViews']=[{showGridLines:false}];
+        XLSX.utils.book_append_sheet(wb,ws,'Executive Summary');
+      })();
+
+      // ═══════════════════════════════════════════════════════════════════
+      // SHEET 2 — MODULE IMPACT
+      // ═══════════════════════════════════════════════════════════════════
+      (()=>{
+        const D=[];
+        D.push(['MODULE IMPACT ANALYSIS','','','','','','','','','']); // 0
+        D.push([`Version Simulation: ${curVC} → ${newVC}  ·  Multiplier: ${mult.toFixed(3)}×  ·  ${dateStr}`,'','','','','','','','','']); // 1
+        D.push(['','','','','','','','','','']); // 2 spacer
+        D.push(['MODULE','CURRENT GB','CURRENT CELLS','VERSIONED ITEMS','TOTAL ITEMS','COVERAGE %','PROJECTED GB','PROJECTED CELLS','+ GB ADDED','% GROWTH']); // 3
+
+        const modRows=mods.map(m=>{
+          const pct =m.curGB >0?(m.addedGB/m.curGB*100):0;
+          const cov =m.total >0?(m.versioned/m.total*100):0;
+          return[m.name,n4(m.curGB),ni(m.curCells),m.versioned,m.total,n2(cov),n4(m.projGB),ni(m.projCells),n4(m.addedGB),n2(pct)];
+        });
+        modRows.forEach(r=>D.push(r));
+        D.push(['TOTAL',
+          n4(mods.reduce((s,m)=>s+m.curGB,0)),
+          ni(mods.reduce((s,m)=>s+m.curCells,0)),
+          mods.reduce((s,m)=>s+m.versioned,0),
+          mods.reduce((s,m)=>s+m.total,0),
+          '',
+          n4(mods.reduce((s,m)=>s+m.projGB,0)),
+          ni(mods.reduce((s,m)=>s+m.projCells,0)),
+          n4(mods.reduce((s,m)=>s+m.addedGB,0)),
+          n2(pctInc)
+        ]);
+
+        const ws=XLSX.utils.aoa_to_sheet(D);
+        const NC=10,totR=4+modRows.length;
+        ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:NC-1}},{s:{r:1,c:0},e:{r:1,c:NC-1}}];
+
+        // Title
+        sr(ws,0,0,NC-1,st({name:'Calibri',sz:16,bold:true,color:{rgb:'1E3A5F'}},{patternType:'solid',fgColor:{rgb:'EFF6FF'}},S.aL));
+        sr(ws,1,0,NC-1,st(S.fSub,{patternType:'solid',fgColor:{rgb:'EFF6FF'}},S.aL));
+        // Header row 3
+        for(let c=0;c<NC;c++) sc(ws,3,c,st(S.fHdr,S.bgHdr,S.aC,S.bThin));
+        sc(ws,3,0,st(S.fHdr,S.bgHdr,S.aL,S.bThin));
+        // Data rows
+        modRows.forEach((_,i)=>{
+          const r=4+i; const m=mods[i];
+          const bg=i%2===0?S.bgEven:S.bgOdd;
+          const hasImpact=m.versioned>0;
+          sc(ws,r,0,st(S.fData,bg,S.aL,S.bThin));
+          sc(ws,r,1,st(S.fNum,bg,S.aR,S.bThin));
+          sc(ws,r,2,st(S.fNum,bg,S.aR,S.bThin));
+          sc(ws,r,3,st(S.fProj,bg,S.aR,S.bThin));
+          sc(ws,r,4,st(S.fMuted,bg,S.aR,S.bThin));
+          sc(ws,r,5,st(S.fMuted,bg,S.aR,S.bThin));
+          sc(ws,r,6,st(S.fProj,bg,S.aR,S.bThin));
+          sc(ws,r,7,st(S.fProj,bg,S.aR,S.bThin));
+          sc(ws,r,8,st(hasImpact?S.fDelta:S.fMuted,bg,S.aR,S.bThin));
+          sc(ws,r,9,st(hasImpact?S.fAmber:S.fMuted,bg,S.aR,S.bThin));
+        });
+        // Total row
+        for(let c=0;c<NC;c++) sc(ws,totR,c,st(S.fTot,S.bgTot,c===0?S.aL:S.aR,S.bMed));
+
+        ws['!cols']=[{wch:36},{wch:14},{wch:15},{wch:15},{wch:13},{wch:13},{wch:14},{wch:15},{wch:13},{wch:13}];
+        ws['!rows']=[{hpt:28},{hpt:15}];
+        ws['!sheetViews']=[{showGridLines:false}];
+        ws['!autofilter']={ref:`A4:J${3+modRows.length}`};
+        XLSX.utils.book_append_sheet(wb,ws,'Module Impact');
+      })();
+
+      // ═══════════════════════════════════════════════════════════════════
+      // SHEET 3 — LINE ITEM DETAIL
+      // ═══════════════════════════════════════════════════════════════════
+      (()=>{
+        const D=[];
+        D.push(['LINE ITEM DETAIL — VERSION IMPACT','','','','','','','','','']); // 0
+        D.push([`All line items  ·  ${curVC} → ${newVC} versions  ·  ${mult.toFixed(3)}× multiplier  ·  ${dateStr}`,'','','','','','','','','']); // 1
+        D.push(['','','','','','','','','','']); // 2
+        D.push(['LINE ITEM','MODULE','VERSIONS','CURRENT GB','CURRENT CELLS','PROJECTED GB','PROJECTED CELLS','+ GB ADDED','+ CELLS ADDED','% GROWTH']); // 3
+
+        const sorted=[...items].sort((a,b)=>(b.addedGB||0)-(a.addedGB||0));
+        sorted.forEach(li=>{
+          D.push([
+            li.name||'',
+            li.module||'',
+            li.isVersioned?(li.versions||'All'):'Not Applicable',
+            n4(li.gb||0),
+            ni(li.cellCount||0),
+            n4(li.projGB||0),
+            ni(li.projCells||0),
+            n4(li.addedGB||0),
+            ni(li.addedCells||0),
+            n2(li.pctGrow||0)
+          ]);
+        });
+
+        const ws=XLSX.utils.aoa_to_sheet(D);
+        const NC=10;
+        ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:NC-1}},{s:{r:1,c:0},e:{r:1,c:NC-1}}];
+
+        // Title
+        sr(ws,0,0,NC-1,st({name:'Calibri',sz:16,bold:true,color:{rgb:'7F1D1D'}},{patternType:'solid',fgColor:{rgb:'FFF1F2'}},S.aL));
+        sr(ws,1,0,NC-1,st(S.fSub,{patternType:'solid',fgColor:{rgb:'FFF1F2'}},S.aL));
+        // Header row 3
+        for(let c=0;c<NC;c++) sc(ws,3,c,st(S.fHdr,S.bgHdr3,S.aC,S.bThin));
+        sc(ws,3,0,st(S.fHdr,S.bgHdr3,S.aL,S.bThin));
+        sc(ws,3,1,st(S.fHdr,S.bgHdr3,S.aL,S.bThin));
+
+        // Data rows
+        sorted.forEach((li,i)=>{
+          const r=4+i;
+          const bg=i%2===0?S.bgEven:S.bgOdd;
+          const imp=li.isVersioned;
+          sc(ws,r,0,st({name:'Calibri',sz:10,bold:true,color:{rgb:'111827'}},bg,S.aL,S.bThin));
+          sc(ws,r,1,st(S.fMuted,bg,S.aL,S.bThin));
+          sc(ws,r,2,st(imp?S.fProj:S.fMuted,bg,S.aC,S.bThin));
+          sc(ws,r,3,st(S.fNum,bg,S.aR,S.bThin));
+          sc(ws,r,4,st(S.fNum,bg,S.aR,S.bThin));
+          sc(ws,r,5,st(S.fProj,bg,S.aR,S.bThin));
+          sc(ws,r,6,st(S.fProj,bg,S.aR,S.bThin));
+          sc(ws,r,7,st(imp&&li.addedGB>0?S.fDelta:S.fMuted,bg,S.aR,S.bThin));
+          sc(ws,r,8,st(imp&&li.addedCells>0?S.fDelta:S.fMuted,bg,S.aR,S.bThin));
+          sc(ws,r,9,st(imp&&li.pctGrow>0?S.fAmber:S.fMuted,bg,S.aR,S.bThin));
+        });
+
+        ws['!cols']=[{wch:34},{wch:32},{wch:14},{wch:14},{wch:15},{wch:14},{wch:15},{wch:13},{wch:15},{wch:12}];
+        ws['!rows']=[{hpt:28},{hpt:15}];
+        ws['!sheetViews']=[{showGridLines:false}];
+        ws['!autofilter']={ref:`A4:J${3+sorted.length}`};
+        XLSX.utils.book_append_sheet(wb,ws,'Line Item Detail');
+      })();
+
+      // ═══════════════════════════════════════════════════════════════════
+      // SHEET 4 — RAW DATA (clean, filterable)
+      // ═══════════════════════════════════════════════════════════════════
+      (()=>{
+        const headers=['LINE ITEM','MODULE','FORMAT','TIME SCALE','TIME RANGE','VERSIONS','VERSION COUNT','TIME PERIODS','BPC','CURRENT CELLS','CURRENT GB','IS VERSIONED','PROJ CELLS','PROJ GB','ADDED CELLS','ADDED GB','% GROWTH'];
+        const D=[headers];
+        items.forEach(li=>{
+          D.push([
+            li.name||'',li.module||'',li.format||'',li.timeScale||'',li.timeRange||'',
+            li.versions||'',li.versionCount||1,li.timePeriods||1,li.bpc||8,
+            ni(li.cellCount||0),n4(li.gb||0),
+            li.isVersioned?'Yes':'No',
+            ni(li.projCells||0),n4(li.projGB||0),
+            ni(li.addedCells||0),n4(li.addedGB||0),
+            n2(li.pctGrow||0)
+          ]);
+        });
+        const ws=XLSX.utils.aoa_to_sheet(D);
+        const NC=17;
+        for(let c=0;c<NC;c++) sc(ws,0,c,st(S.fHdr,S.bgHdr,S.aC,S.bThin));
+        items.forEach((_,i)=>{
+          const bg=i%2===0?S.bgEven:S.bgOdd;
+          for(let c=0;c<NC;c++){
+            const isNum=c>=9;
+            sc(ws,1+i,c,st(
+              isNum?S.fNum:S.fData,
+              bg,
+              isNum?S.aR:S.aL,
+              S.bThin
+            ));
+          }
+        });
+        ws['!cols']=[{wch:32},{wch:28},{wch:14},{wch:13},{wch:18},{wch:14},{wch:14},{wch:13},{wch:7},{wch:14},{wch:12},{wch:12},{wch:13},{wch:12},{wch:13},{wch:12},{wch:11}];
+        ws['!sheetViews']=[{showGridLines:false,state:'frozen',ySplit:1}];
+        ws['!autofilter']={ref:`A1:Q${items.length+1}`};
+        XLSX.utils.book_append_sheet(wb,ws,'Raw Data');
+      })();
+
+      // ── DOWNLOAD ──────────────────────────────────────────────────────
+      const fname=`VS_Report_${curVC}v_to_${newVC}v_${now.toISOString().slice(0,10)}.xlsx`;
+      const wbout=XLSX.write(wb,{bookType:'xlsx',bookSST:false,type:'array',cellStyles:true});
+      const blob=new Blob([new Uint8Array(wbout)],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url; a.download=fname; document.body.appendChild(a); a.click();
+      setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url);},1000);
+
+      btn.innerHTML=`<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M7.5 10.5L4 7h2.5V2h2v5H11L7.5 10.5z" fill="currentColor"/><path d="M2 13h11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg> Downloaded! <span class="export-pill">✓</span>`;
+      setTimeout(()=>{
+        btn.innerHTML=`<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="2" y="1" width="11" height="13" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M5 5h5M5 7.5h5M5 10h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M9.5 11l1.5 1.5L13 10" stroke="#4ade80" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg> Export Report <span class="export-pill">XLSX</span>`;
+        btn.disabled=false;
+      },2500);
+
+    }catch(err){
+      console.error('Export error:',err);
+      alert('Export failed: '+err.message);
+      btn.innerHTML=`Export Report <span class="export-pill">XLSX</span>`;
+      btn.disabled=false;
+    }
+  },80);
+}
 </script>
 </body>
 </html>
